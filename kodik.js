@@ -1,10 +1,10 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v0.0.1
-// @author       mer1ze
+// @version      v1.1.0
+// @author       User
 // @lang         ru
 // @license      MIT
-// @icon         https://kodik.biz/favicon.ico
+// @icon         https://kodikplayer.com/favicon.ico
 // @package      kodik.ru
 // @type         bangumi
 // @webSite      https://kodikapi.com
@@ -24,7 +24,20 @@ export default class extends Extension {
     });
   }
 
-  // Последние обновленные аниме
+  // Декодер Base64 для QuickJS движка Miru
+  decodeB64(str) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let output = '';
+    str = String(str).replace(/=+$/, '');
+    for (let bc = 0, bs, buffer, idx = 0; buffer = str.charAt(idx++);
+      ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0
+    ) {
+      buffer = chars.indexOf(buffer);
+    }
+    return output;
+  }
+
+  // Список последних обновленных тайтлов
   async latest(page) {
     const res = await this.req(`/list?types=anime-serial,anime&limit=24&page=${page}&with_episodes=true`);
     
@@ -47,23 +60,21 @@ export default class extends Extension {
         id: item.id
       }),
       cover: item.material_data?.poster_url || "https://shikimori.one/assets/globals/missing.png",
-      desc: item.material_data?.description || `Озвучка/Перевод: ${item.translation.title}`,
+      desc: item.material_data?.description || `Озвучка: ${item.translation.title}`,
     }));
   }
 
-  // Получение сезонов, вариантов озвучки и серий
+  // Страница аниме с выбором озвучек и серий
   async detail(rawUrl) {
     let itemData;
     try {
       itemData = JSON.parse(rawUrl);
     } catch (e) {
-      // Если перешли из списка latest
       const res = await this.req(rawUrl);
       const item = res.results[0];
       itemData = { link: item.link, title: item.title, id: item.id };
     }
 
-    // Запрашиваем полный список озвучек для этого тайтла
     const searchRes = await this.req(`/search?id=${itemData.id}&with_episodes=true`);
     const episodesGroups = [];
 
@@ -72,7 +83,6 @@ export default class extends Extension {
       const urlsList = [];
 
       if (release.seasons) {
-        // Если это сериал
         for (const seasonNum in release.seasons) {
           const episodes = release.seasons[seasonNum].episodes;
           for (const epNum in episodes) {
@@ -83,9 +93,8 @@ export default class extends Extension {
           }
         }
       } else if (release.link) {
-        // Если это фильм/спешл
         urlsList.push({
-          name: "Фильм / Ова",
+          name: "Фильм / ОВА",
           url: release.link,
         });
       }
@@ -106,55 +115,57 @@ export default class extends Extension {
     };
   }
 
-  // Распаковка ссылки Kodik и получение прямых m3u8 потоков
+  // Извлечение HLS-потока из плеера Kodik
   async watch(url) {
-    let playerUrl = url.startsWith("//") ? `https:${url}` : url;
+    // Принудительно заменяем устаревшие домены на рабочий kodikplayer.com
+    let playerUrl = (url.startsWith("//") ? `https:${url}` : url)
+      .replace("kodik.info", "kodikplayer.com")
+      .replace("kodik.cc", "kodikplayer.com")
+      .replace("kodik.biz", "kodikplayer.com")
+      .replace("aniqit.com", "kodikplayer.com");
 
-    // Делаем запрос к плееру Kodik с нужным Referer
     const html = await this.request("", {
       headers: {
         "Miru-Url": playerUrl,
-        "Referer": "https://kodik.info/",
+        "Referer": "https://kodikplayer.com/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
 
-    // Вытаскиваем зашифрованные видео-параметры из HTML скрипта Kodik
-    const domainMatch = html.match(/var domain = "(.+?)";/);
-    const dSignMatch = html.match(/var d_sign = "(.+?)";/);
-    const pdMatch = html.match(/var pd = "(.+?)";/);
-    const pdSignMatch = html.match(/var pd_sign = "(.+?)";/);
-    const refMatch = html.match(/var ref = "(.+?)";/);
+    if (!html) throw new Error("Не удалось загрузить HTML плеера Kodik");
 
-    if (!domainMatch || !dSignMatch) {
-      throw new Error("Не удалось спарсить токен плеера Kodik");
+    const domain = (html.match(/var domain = "(.+?)";/) || [])[1];
+    const d_sign = (html.match(/var d_sign = "(.+?)";/) || [])[1];
+    const pd = (html.match(/var pd = "(.+?)";/) || [])[1] || "";
+    const pd_sign = (html.match(/var pd_sign = "(.+?)";/) || [])[1] || "";
+    const ref = (html.match(/var ref = "(.+?)";/) || [])[1] || "";
+
+    if (!domain || !d_sign) {
+      throw new Error("Не удалось извлечь токены Kodik из HTML");
     }
 
-    // Формируем POST-запрос на получения списка ссылок качеств (.m3u8)
-    const postData = new URLSearchParams({
-      domain: domainMatch[1],
-      d_sign: dSignMatch[1],
-      pd: pdMatch ? pdMatch[1] : "",
-      pd_sign: pdSignMatch ? pdSignMatch[1] : "",
-      ref: refMatch ? refMatch[1] : "",
-      bad_user: "false",
-      type: "video",
-    }).toString();
+    // Ручная сборка POST-тела без URLSearchParams
+    const postBody = `domain=${encodeURIComponent(domain)}&d_sign=${encodeURIComponent(d_sign)}&pd=${encodeURIComponent(pd)}&pd_sign=${encodeURIComponent(pd_sign)}&ref=${encodeURIComponent(ref)}&bad_user=false&type=video`;
 
     const gtaRes = await this.request(`/gta`, {
       method: "POST",
       headers: {
-        "Miru-Url": `https://${domainMatch[1]}/gta`,
+        "Miru-Url": `https://${domain}/gta`,
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": playerUrl,
       },
-      data: postData,
+      data: postBody,
     });
 
-    // Извлекаем и декодируем ссылки качеств
-    const links = gtaRes.links;
-    const maxQuality = Object.keys(links).sort((a, b) => parseInt(b) - parseInt(a))[0];
-    const streamUrl = atob(links[maxQuality][0].src); // Расшифровка base64-ссылки
+    if (!gtaRes || !gtaRes.links) {
+      throw new Error("Kodik не вернул ссылки на видеопоток");
+    }
+
+    const qualities = Object.keys(gtaRes.links);
+    const maxQuality = qualities[qualities.length - 1];
+    const encodedSrc = gtaRes.links[maxQuality][0].src;
+
+    const streamUrl = this.decodeB64(encodedSrc);
 
     return {
       type: "hls",
