@@ -154,22 +154,28 @@ export default class extends Extension {
       throw new Error("Не удалось получить страницу фрейма Kodik");
     }
 
-    // Функция точного парсинга глобальных переменных из HTML (как в window)
     const extractGlobal = (name) => {
-      // Ищет вариант вида: var d_sign = "значение"; или просто d_sign = "значение";
       const regex = new RegExp(`(?:var\\s+)?${name}\\s*=\\s*['"]([^'"]+)['"]`, 'i');
       const match = html.match(regex);
       return match ? match[1] : "";
     };
 
-    const domain = extractGlobal('domain') || "kodikplayer.com";
+    // Жестко страхуемся: если domain пустой, берем его из cleanUrl или ставим дефолт
+    let domain = extractGlobal('domain');
+    if (!domain) {
+      try {
+        domain = new URL(cleanUrl).hostname;
+      } catch (e) {
+        domain = "kodikplayer.com";
+      }
+    }
+
     const dSign = extractGlobal('d_sign');
     const pd = extractGlobal('pd') || domain;
     const pdSign = extractGlobal('pd_sign');
     const ref = extractGlobal('ref');
     const refSign = extractGlobal('ref_sign');
 
-    // Достаем hash и id из URL страницы плеера или инлайнов, если они не заданы глобально
     let videoHash = extractGlobal('hash');
     let videoId = extractGlobal('id');
 
@@ -185,7 +191,6 @@ export default class extends Extension {
       throw new Error(`Не удалось извлечь подписи Kodik. Hash: ${videoHash}, ID: ${videoId}, Sign: ${dSign}`);
     }
 
-    // Собираем POST-запрос на /ftor строго по шаблону, который мы поймали через дебаггер
     const postDataObj = {
       d: domain,
       d_sign: dSign,
