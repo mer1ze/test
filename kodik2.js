@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.2.3
+// @version      v1.2.4
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -30,16 +30,18 @@ export default class extends Extension {
     const symbol = endpoint.includes("?") ? "&" : "?";
     const path = `${endpoint}${symbol}token=${this.apiToken}`;
 
-    // Передаем абсолютный URL прямым первым аргументом (Miru корректно выполнит запрос)
+    // Передаем относительный путь path, а хост задаем через Miru-Url
     try {
-      return await this.request(`https://kodikapi.com${path}`, {
+      return await this.request(path, {
         headers: {
+          "Miru-Url": "https://kodikapi.com",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
       });
     } catch (e) {
-      return await this.request(`https://kodik-api.com${path}`, {
+      return await this.request(path, {
         headers: {
+          "Miru-Url": "https://kodik-api.com",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
       });
@@ -137,8 +139,9 @@ export default class extends Extension {
       .replace("kodik.biz", "kodikplayer.com")
       .replace("aniqit.com", "kodikplayer.com");
 
-    const html = await this.request(playerUrl, {
+    const html = await this.request("", {
       headers: {
+        "Miru-Url": playerUrl,
         "Referer": "https://kodikplayer.com/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
@@ -163,9 +166,10 @@ export default class extends Extension {
 
     const postBody = `domain=${encodeURIComponent(domain)}&d_sign=${encodeURIComponent(d_sign)}&pd=${encodeURIComponent(pd)}&pd_sign=${encodeURIComponent(pd_sign)}&ref=${encodeURIComponent(ref)}&bad_user=false&type=video`;
 
-    const gtaRes = await this.request(`https://${domain}/gta`, {
+    const gtaRes = await this.request("", {
       method: "POST",
       headers: {
+        "Miru-Url": `https://${domain}/gta`,
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": playerUrl,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
