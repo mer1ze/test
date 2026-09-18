@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.7.2
+// @version      v3.7.3
 // @author       mer1ze
 // @lang         ru
 // @license      MIT
@@ -141,105 +141,46 @@ export default class extends Extension {
 
   async watch(urlStr) {
     const parts = urlStr.split("|");
-    const rawUrl = parts[0];
-    let cleanUrl = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
+    const shikimoriId = parts[1];
+    const episodeNum = parts[2] || "1";
 
-    const html = await this.fetchApi(cleanUrl, {
-      headers: {
-        "Referer": "https://shikimori.io/",
-      },
-    });
-
-    if (typeof html !== "string") {
-      throw new Error("Не удалось получить страницу фрейма Kodik");
+    if (!shikimoriId) {
+      throw new Error("Не удалось определить ID релиза для получения потока");
     }
 
-    const extractGlobal = (name) => {
-      const regex = new RegExp(`(?:var\\s+)?${name}\\s*=\\s*['"]([^'"]+)['"]`, 'i');
-      const match = html.match(regex);
-      return match ? match[1] : "";
-    };
+    // Запрашиваем официальное API Кодика, которое отдает прямые ссылки на потоки без защиты /ftor
+    const apiRes = await this.fetchApi(`https://kodik-api.com/search?token=${this.kodikToken}&shikimori_id=${shikimoriId}&with_episodes=true`);
+    
+    if (!apiRes || !apiRes.results || apiRes.results.length === 0) {
+      throw new Error("Не удалось найти потоки через API Кодика");
+    }
 
-    // Надежное определение домена плеера с жестким исключением сторонних сайтов
-    let domain = extractGlobal('domain');
-    if (!domain || domain.includes('shikimori') || domain.includes('myshows')) {
-      try {
-        const urlObj = new URL(cleanUrl);
-        domain = urlObj.hostname;
-      } catch (e) {
-        domain = "kodikplayer.com";
+    // Ищем нужную серию в результатах
+    for (const release of apiRes.results) {
+      let streamUrl = "";
+
+      if (release.seasons) {
+        for (const sKey of Object.keys(release.seasons)) {
+          const season = release.seasons[sKey];
+          const episodes = season.episodes || season;
+          if (episodes[episodeNum]) {
+            const epData = episodes[episodeNum];
+            streamUrl = typeof epData === "string" ? epData : epData.link;
+          }
+        }
       }
-    }
-    if (!domain || domain.includes('shikimori')) {
-      domain = "kodikplayer.com";
-    }
 
-    const dSign = extractGlobal('d_sign');
-    const pd = extractGlobal('pd') || domain;
-    const pdSign = extractGlobal('pd_sign');
-    const ref = extractGlobal('ref');
-    const refSign = extractGlobal('ref_sign');
-
-    let videoHash = extractGlobal('hash');
-    let videoId = extractGlobal('id');
-
-    if (!videoHash || !videoId) {
-      const urlMatch = cleanUrl.match(/\/(?:seria|video|serial)\/(\d+)\/([a-f0-9]+)/i);
-      if (urlMatch) {
-        videoId = videoId || urlMatch[1];
-        videoHash = videoHash || urlMatch[2];
+      if (streamUrl) {
+        if (streamUrl.startsWith("//")) {
+          streamUrl = `https:${streamUrl}`;
+        }
+        return {
+          type: "hls",
+          url: streamUrl,
+        };
       }
     }
 
-    if (!dSign || !videoHash || !videoId) {
-      throw new Error(`Не удалось извлечь подписи Kodik. Hash: ${videoHash}, ID: ${videoId}, Sign: ${dSign}`);
-    }
-
-    const postDataObj = {
-      d: domain,
-      d_sign: dSign,
-      pd: pd,
-      pd_sign: pdSign || dSign,
-      ref: ref || "",
-      ref_sign: refSign || "",
-      bad_user: false,
-      cdn_is_working: true,
-      type: "seria",
-      hash: videoHash,
-      id: videoId,
-      info: "{}"
-    };
-
-    const postData = Object.keys(postDataObj)
-      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(postDataObj[key])}`)
-      .join("&");
-
-    const ftorRes = await this.fetchApi(`https://${domain}/ftor`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": cleanUrl,
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      data: postData,
-    });
-
-    if (ftorRes && ftorRes.links) {
-      const qualities = Object.keys(ftorRes.links);
-      const bestQuality = qualities[qualities.length - 1];
-      const linkObj = ftorRes.links[bestQuality][0];
-      
-      let streamUrl = this.decodeUrl(linkObj.src);
-      if (streamUrl.startsWith("//")) {
-        streamUrl = `https:${streamUrl}`;
-      }
-
-      return {
-        type: "hls",
-        url: streamUrl,
-      };
-    }
-
-    throw new Error("Сервер Kodik отклонил запрос на /ftor (пустой ответ)");
+    throw new Error("Указанная серия не найдена в базе потоков");
   }
 }
