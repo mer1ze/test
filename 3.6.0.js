@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.6.0
+// @version      v3.6.1
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -167,7 +167,6 @@ export default class extends Extension {
       } catch (e) {}
     }
 
-    // Для прямого запроса используем стандартный домен плеера
     const domain = "kodikplayer.com";
     const dSign = urlParamsJson.d_sign || extract(/d_sign["']?\s*[:=]\s*["']([^"']+)["']/i);
     const refSign = urlParamsJson.ref_sign || extract(/ref_sign["']?\s*[:=]\s*["']([^"']+)["']/i);
@@ -184,15 +183,14 @@ export default class extends Extension {
     }
 
     if (!dSign || !videoHash || !videoId) {
-      throw new Error(`Не удалось спарсить параметры видео. Hash: ${videoHash}, ID: ${videoId}`);
+      throw new Error(`Параметры не найдены. Hash: ${videoHash}, ID: ${videoId}`);
     }
 
-    // Прямой вариант payload (как на втором скриншоте)
     const postDataObj = {
       d: domain,
       d_sign: dSign,
       pd: domain,
-      pd_sign: dSign, // При прямом запросе pd_sign полностью равен d_sign
+      pd_sign: dSign,
       ref: "",
       ref_sign: refSign || "",
       bad_user: "false",
@@ -207,32 +205,39 @@ export default class extends Extension {
       .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(postDataObj[key])}`)
       .join("&");
 
-    const ftorRes = await this.fetchApi(`https://${domain}/ftor`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": cleanUrl,
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      data: postData,
-    });
+    const targetUrl = `https://${domain}/ftor`;
 
-    if (ftorRes && ftorRes.links) {
-      const qualities = Object.keys(ftorRes.links);
-      const bestQuality = qualities[qualities.length - 1];
-      const linkObj = ftorRes.links[bestQuality][0];
-      
-      let streamUrl = this.decodeUrl(linkObj.src);
-      if (streamUrl.startsWith("//")) {
-        streamUrl = `https:${streamUrl}`;
+    try {
+      const ftorRes = await this.fetchApi(targetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "Referer": cleanUrl,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        data: postData,
+      });
+
+      if (ftorRes && ftorRes.links) {
+        const qualities = Object.keys(ftorRes.links);
+        const bestQuality = qualities[qualities.length - 1];
+        const linkObj = ftorRes.links[bestQuality][0];
+        
+        let streamUrl = this.decodeUrl(linkObj.src);
+        if (streamUrl.startsWith("//")) {
+          streamUrl = `https:${streamUrl}`;
+        }
+
+        return {
+          type: "hls",
+          url: streamUrl,
+        };
       }
-
-      return {
-        type: "hls",
-        url: streamUrl,
-      };
+    } catch (err) {
+      // Выбрасываем отладочную ошибку с полным URL и телом запроса
+      throw new Error(`URL: ${targetUrl} | Data: ${postData} | Err: ${err.message}`);
     }
 
-    throw new Error("Не удалось получить поток от Kodik /ftor (прямой запрос)");
+    throw new Error("Пустой ответ links от /ftor");
   }
 }
