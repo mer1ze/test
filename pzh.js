@@ -141,46 +141,37 @@ export default class extends Extension {
 
   async watch(urlStr) {
     const parts = urlStr.split("|");
+    const rawUrl = parts[0];
     const shikimoriId = parts[1];
-    const episodeNum = parts[2] || "1";
 
-    if (!shikimoriId) {
-      throw new Error("Не удалось определить ID релиза для получения потока");
-    }
+    let streamUrl = "";
 
-    // Запрашиваем официальное API Кодика, которое отдает прямые ссылки на потоки без защиты /ftor
-    const apiRes = await this.fetchApi(`https://kodik-api.com/search?token=${this.kodikToken}&shikimori_id=${shikimoriId}&with_episodes=true`);
-    
-    if (!apiRes || !apiRes.results || apiRes.results.length === 0) {
-      throw new Error("Не удалось найти потоки через API Кодика");
-    }
-
-    // Ищем нужную серию в результатах
-    for (const release of apiRes.results) {
-      let streamUrl = "";
-
-      if (release.seasons) {
-        for (const sKey of Object.keys(release.seasons)) {
-          const season = release.seasons[sKey];
-          const episodes = season.episodes || season;
-          if (episodes[episodeNum]) {
-            const epData = episodes[episodeNum];
-            streamUrl = typeof epData === "string" ? epData : epData.link;
+    // 1. Пробуем через официальное API по ID
+    if (shikimoriId) {
+      try {
+        const apiRes = await this.fetchApi(`https://kodik-api.com/search?token=${this.kodikToken}&shikimori_id=${shikimoriId}&with_episodes=true`);
+        if (apiRes && apiRes.results && apiRes.results.length > 0) {
+          const release = apiRes.results[0];
+          if (release.link) {
+            streamUrl = release.link;
           }
         }
-      }
-
-      if (streamUrl) {
-        if (streamUrl.startsWith("//")) {
-          streamUrl = `https:${streamUrl}`;
-        }
-        return {
-          type: "hls",
-          url: streamUrl,
-        };
-      }
+      } catch (e) {}
     }
 
-    throw new Error("Указанная серия не найдена в базе потоков");
+    // 2. Если API не помогло, используем прямую ссылку из плеера
+    if (!streamUrl && rawUrl) {
+      streamUrl = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
+    }
+
+    if (!streamUrl) {
+      throw new Error("Не удалось получить ссылку на потоки Kodik");
+    }
+
+    // Возвращаем как есть, если это уже прямой HLS, либо отдаем плееру
+    return {
+      type: "hls",
+      url: streamUrl,
+    };
   }
 }
