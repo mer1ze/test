@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.4.0
+// @version      v3.4.1
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -12,8 +12,7 @@
 // ==/MiruExtension==
 
 export default class extends Extension {
-  // Свежий токен из перехваченных запросов
-  kodikToken = "57359f483cd12969e0483bb3e1f260c6";
+  kodikToken = "57359f483cd12969e0483bb3e1f260c6";[cite: 23]
   shikimoriDomain = "https://shikimori.io";
 
   async latest(page) {
@@ -63,13 +62,16 @@ export default class extends Extension {
 
     const episodesGroups = [];
     let kodikRes = null;
-    const apiDomains = ["kodik-api.com", "kodik.info"];
+    const apiEndpoints = [
+      `https://kodik-api.com/search?token=${this.kodikToken}&shikimori_id=${id}&with_episodes=true`,[cite: 23]
+      `https://kodik-api.com/v2/search?token=${this.kodikToken}&shikimori_id=${id}&with_episodes=true`
+    ];
     
-    for (const domain of apiDomains) {
+    for (const url of apiEndpoints) {
       try {
         kodikRes = await this.request("", {
           headers: {
-            "Miru-Url": `https://${domain}/v2/search?shikimori_id=${id}&token=${this.kodikToken}&with_episodes=true`,
+            "Miru-Url": url,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
           },
         });
@@ -83,14 +85,28 @@ export default class extends Extension {
         const urlsList = [];
 
         if (release.seasons) {
-          for (const seasonNum in release.seasons) {
-            const episodes = release.seasons[seasonNum].episodes;
-            for (const epNum in episodes) {
-              urlsList.push({
-                name: `Серия ${epNum}`,
-                url: `${episodes[epNum]}|${id}|${epNum}`,
-              });
+          // Обходим сезоны
+          for (const seasonNum of Object.keys(release.seasons)) {
+            const season = release.seasons[seasonNum];
+            const episodes = season.episodes || season;
+            
+            if (typeof episodes === "object") {
+              for (const epNum of Object.keys(episodes)) {
+                const epUrl = episodes[epNum];
+                const cleanEpUrl = typeof epUrl === "string" ? epUrl : (epUrl.link || release.link);
+                urlsList.push({
+                  name: `Серия ${epNum}`,
+                  url: `${cleanEpUrl}|${id}|${epNum}`,
+                });
+              }
             }
+          }
+        } else if (release.last_episode && release.link) {
+          for (let i = 1; i <= release.last_episode; i++) {
+            urlsList.push({
+              name: `Серия ${i}`,
+              url: `${release.link}|${id}|${i}`,
+            });
           }
         } else if (release.link) {
           urlsList.push({
@@ -116,7 +132,6 @@ export default class extends Extension {
     };
   }
 
-  // Декодер зашифрованных ссылок Kodik (ROT13 + Base64)
   decodeUrl(url) {
     if (!url) return "";
     if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//")) {
@@ -126,8 +141,7 @@ export default class extends Extension {
       const rot13 = url.replace(/[a-zA-Z]/g, (c) =>
         String.fromCharCode((c <= "Z" ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26)
       );
-      const decoded = atob(rot13);
-      return decoded;
+      return atob(rot13);
     } catch (e) {
       return url;
     }
@@ -138,7 +152,6 @@ export default class extends Extension {
     const rawUrl = parts[0];
     let cleanUrl = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
 
-    // 1. Получаем HTML страницу фрейма серии
     const html = await this.request("", {
       headers: {
         "Miru-Url": cleanUrl,
@@ -151,49 +164,45 @@ export default class extends Extension {
       throw new Error("Не удалось получить страницу фрейма Kodik");
     }
 
-    // 2. Парсим подписи и параметры из HTML
-    const dSignMatch = html.match(/d_sign["']?\s*[:=]\s*["']([^"']+)["']/);
-    const pdSignMatch = html.match(/pd_sign["']?\s*[:=]\s*["']([^"']+)["']/);
-    const refSignMatch = html.match(/ref_sign["']?\s*[:=]\s*["']([^"']+)["']/);
-    const typeMatch = html.match(/videoInfo\.type\s*=\s*["']([^"']+)["']/);
-    const hashMatch = html.match(/videoInfo\.hash\s*=\s*["']([^"']+)["']/);
-    const idMatch = html.match(/videoInfo\.id\s*=\s*["']([^"']+)["']/);
+    const dSignMatch = html.match(/d_sign["']?\s*[:=]\s*["']([^"']+)["']/);[cite: 22]
+    const pdSignMatch = html.match(/pd_sign["']?\s*[:=]\s*["']([^"']+)["']/);[cite: 22]
+    const refSignMatch = html.match(/ref_sign["']?\s*[:=]\s*["']([^"']+)["']/);[cite: 22]
+    const typeMatch = html.match(/videoInfo\.type\s*=\s*["']([^"']+)["']/);[cite: 22]
+    const hashMatch = html.match(/videoInfo\.hash\s*=\s*["']([^"']+)["']/);[cite: 22]
+    const idMatch = html.match(/videoInfo\.id\s*=\s*["']([^"']+)["']/);[cite: 22]
 
     if (!dSignMatch || !hashMatch || !idMatch) {
       throw new Error("Не удалось спарсить параметры видео из фрейма");
     }
 
-    // 3. Собираем Form Data для POST /ftor
-    const domain = "kodikplayer.com";
+    const domain = "kodikplayer.com";[cite: 22]
     const postData = new URLSearchParams({
-      d: domain,
-      d_sign: dSignMatch[1],
-      pd: domain,
-      pd_sign: pdSignMatch ? pdSignMatch[1] : "",
-      ref: "",
-      ref_sign: refSignMatch ? refSignMatch[1] : "",
-      bad_user: "false",
-      cdn_is_working: "true",
-      type: typeMatch ? typeMatch[1] : "seria",
-      hash: hashMatch[1],
-      id: idMatch[1],
-      info: "{}"
+      d: domain,[cite: 22]
+      d_sign: dSignMatch[1],[cite: 22]
+      pd: domain,[cite: 22]
+      pd_sign: pdSignMatch ? pdSignMatch[1] : "",[cite: 22]
+      ref: "",[cite: 22]
+      ref_sign: refSignMatch ? refSignMatch[1] : "",[cite: 22]
+      bad_user: "false",[cite: 22]
+      cdn_is_working: "true",[cite: 22]
+      type: typeMatch ? typeMatch[1] : "seria",[cite: 22]
+      hash: hashMatch[1],[cite: 22]
+      id: idMatch[1],[cite: 22]
+      info: "{}"[cite: 22]
     }).toString();
 
-    // 4. Отправляем POST запрос на /ftor
     const ftorRes = await this.request("", {
       method: "POST",
       headers: {
-        "Miru-Url": `https://${domain}/ftor`,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Miru-Url": `https://${domain}/ftor`,[cite: 22]
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",[cite: 22]
         "Referer": cleanUrl,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-        "X-Requested-With": "XMLHttpRequest",
+        "X-Requested-With": "XMLHttpRequest",[cite: 22]
       },
       data: postData,
     });
 
-    // 5. Разбираем ответ и достаем наивысшее качество
     if (ftorRes && ftorRes.links) {
       const qualities = Object.keys(ftorRes.links);
       const bestQuality = qualities[qualities.length - 1];
