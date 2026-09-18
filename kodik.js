@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.2.0
+// @version      v1.2.1
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -12,34 +12,20 @@
 // ==/MiruExtension==
 
 export default class extends Extension {
-  apiToken = "q8p5vnf9crt7xfyzke4iwc6r5rvsurv7";
-  primaryDomain = "https://kodikapi.com";
-  backupDomain = "https://kodik-api.com";
+  apiToken = "89144806a6428eb3e98132d733ec142a";
 
-  // Универсальный запрос с автоматическим фоллбэком при ошибке DNS
   async req(endpoint) {
     const symbol = endpoint.includes("?") ? "&" : "?";
-    const path = `${endpoint}${symbol}token=${this.apiToken}`;
+    const fullUrl = `https://kodikapi.com${endpoint}${symbol}token=${this.apiToken}`;
 
-    try {
-      return await this.request(path, {
-        headers: {
-          "Miru-Url": this.primaryDomain,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-    } catch (e) {
-      // Если основной домен kodikapi.com не резолвится, запрашиваем через запасное зеркало
-      return await this.request(path, {
-        headers: {
-          "Miru-Url": this.backupDomain,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-    }
+    return await this.request("", {
+      headers: {
+        "Miru-Url": fullUrl,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
   }
 
-  // Декодер Base64 для QuickJS движка Miru
   decodeB64(str) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
     let output = '';
@@ -56,7 +42,7 @@ export default class extends Extension {
     const res = await this.req(`/list?types=anime-serial,anime&limit=24&page=${page}&with_episodes=true`);
     
     if (!res || !res.results) {
-      throw new Error("Не удалось получить список от API Kodik");
+      return [];
     }
 
     return res.results.map((item) => ({
@@ -138,7 +124,6 @@ export default class extends Extension {
   async watch(url) {
     let playerUrl = url.startsWith("//") ? `https:${url}` : url;
     
-    // Перенаправляем все вызовы на рабочее зеркало плеера kodikplayer.com
     playerUrl = playerUrl
       .replace("kodik.info", "kodikplayer.com")
       .replace("kodik.cc", "kodikplayer.com")
@@ -172,7 +157,7 @@ export default class extends Extension {
 
     const postBody = `domain=${encodeURIComponent(domain)}&d_sign=${encodeURIComponent(d_sign)}&pd=${encodeURIComponent(pd)}&pd_sign=${encodeURIComponent(pd_sign)}&ref=${encodeURIComponent(ref)}&bad_user=false&type=video`;
 
-    const gtaRes = await this.request(`/gta`, {
+    const gtaRes = await this.request("", {
       method: "POST",
       headers: {
         "Miru-Url": `https://${domain}/gta`,
@@ -184,7 +169,7 @@ export default class extends Extension {
     });
 
     if (!gtaRes || !gtaRes.links) {
-      throw new Error("Kodik не отдал прямые ссылки на потоки");
+      throw new Error("Kodik не отдал ссылки на видеопоток");
     }
 
     const qualities = Object.keys(gtaRes.links);
