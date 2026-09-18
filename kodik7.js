@@ -7,7 +7,7 @@
 // @icon         https://kodikplayer.com/favicon.ico
 // @package      kodik.ru
 // @type         bangumi
-// @webSite      https://shikimori.one
+// @webSite      https://shikimori.io
 // @nsfw         false
 // ==/MiruExtension==
 
@@ -53,7 +53,7 @@ export default class extends Extension {
     return res.map((item) => ({
       title: item.russian || item.name,
       url: item.id.toString(),
-      cover: item.image?.original ? `https://shikimori.one${item.image.original}` : "",
+      cover: item.image?.original ? `https://shikimori.io${item.image.original}` : "",
     }));
   }
 
@@ -67,7 +67,7 @@ export default class extends Extension {
     return res.map((item) => ({
       title: item.russian || item.name,
       url: item.id.toString(),
-      cover: item.image?.original ? `https://shikimori.one${item.image.original}` : "",
+      cover: item.image?.original ? `https://shikimori.io${item.image.original}` : "",
       desc: `Рейтинг: ${item.score || 'N/A'}`,
     }));
   }
@@ -133,7 +133,7 @@ export default class extends Extension {
 
     return {
       title: anime.russian || anime.name,
-      cover: anime.image?.original ? `https://shikimori.one${anime.image.original}` : "",
+      cover: anime.image?.original ? `https://shikimori.io${anime.image.original}` : "",
       desc: anime.description || "Описание отсутствует.",
       episodes: episodesGroups,
     };
