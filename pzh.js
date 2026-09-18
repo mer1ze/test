@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.7.1
+// @version      v3.7.2
 // @author       mer1ze
 // @lang         ru
 // @license      MIT
@@ -160,10 +160,18 @@ export default class extends Extension {
       return match ? match[1] : "";
     };
 
-    // Жестко страхуемся: если domain пустой, берем его из cleanUrl или ставим дефолт
+    // Надежное определение домена плеера с жестким исключением сторонних сайтов
     let domain = extractGlobal('domain');
-    if (!domain || domain.includes('shikimori') || domain.includes('kinopoisk')) {
+    if (!domain || domain.includes('shikimori') || domain.includes('myshows')) {
+      try {
+        const urlObj = new URL(cleanUrl);
+        domain = urlObj.hostname;
+      } catch (e) {
         domain = "kodikplayer.com";
+      }
+    }
+    if (!domain || domain.includes('shikimori')) {
+      domain = "kodikplayer.com";
     }
 
     const dSign = extractGlobal('d_sign');
