@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.3.0
+// @version      v1.3.1
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -12,7 +12,7 @@
 // ==/MiruExtension==
 
 export default class extends Extension {
-  kodikToken = "89144806a6428eb3e98132d733ec142a";
+  kodikToken = "q8p5vnf9crt7xfyzke4iwc6r5rvsurv7";
 
   decodeB64(str) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
@@ -26,7 +26,39 @@ export default class extends Extension {
     return output;
   }
 
-  // Главная страница: список аниме через Shikimori API
+  // Запрос к Kodik с обходом блокировок DNS
+  async reqKodik(path) {
+    // 1. Пробуем рабочее зеркало
+    try {
+      return await this.request("", {
+        headers: {
+          "Miru-Url": `https://kodik-api.com${path}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+    } catch (e) {}
+
+    // 2. Пробуем основной домен
+    try {
+      return await this.request("", {
+        headers: {
+          "Miru-Url": `https://kodikapi.com${path}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+    } catch (e) {}
+
+    // 3. Фоллбэк через CORS прокси
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(`https://kodikapi.com${path}`)}`;
+    return await this.request("", {
+      headers: {
+        "Miru-Url": proxyUrl,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+  }
+
+  // Главная страница: через Shikimori API
   async latest(page) {
     const res = await this.request(`/api/animes?page=${page}&limit=24&order=ranked`, {
       headers: {
@@ -43,7 +75,7 @@ export default class extends Extension {
     }));
   }
 
-  // Поиск через Shikimori API
+  // Поиск: через Shikimori API
   async search(kw, page) {
     const res = await this.request(`/api/animes?search=${encodeURIComponent(kw)}&page=${page}&limit=24`, {
       headers: {
@@ -57,11 +89,11 @@ export default class extends Extension {
       title: item.russian || item.name,
       url: `/api/animes/${item.id}`,
       cover: item.image?.original ? `https://shikimori.one${item.image.original}` : "https://shikimori.one/assets/globals/missing.png",
-      desc: `Статус: ${item.status} | Оценка: ${item.score}`,
+      desc: `Рейтинг: ${item.score || 'N/A'}`,
     }));
   }
 
-  // Страница аниме: ищем озвучки и серии в Kodik по shikimori_id
+  // Карточка тайтла и получение серий
   async detail(url) {
     const anime = await this.request(url, {
       headers: {
@@ -70,30 +102,14 @@ export default class extends Extension {
     });
 
     const shikimoriId = anime.id;
+    const path = `/api/v2/search?shikimori_id=${shikimoriId}&token=${this.kodikToken}&with_episodes=true`;
     
-    // Запрос пленок Kodik по ID с Shikimori
-    let kodikRes;
-    try {
-      kodikRes = await this.request(`/api/v2/search?shikimori_id=${shikimoriId}&token=${this.kodikToken}&with_episodes=true`, {
-        headers: {
-          "Miru-Url": "https://kodik-api.com",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-    } catch (e) {
-      kodikRes = await this.request(`/api/v2/search?shikimori_id=${shikimoriId}&token=${this.kodikToken}&with_episodes=true`, {
-        headers: {
-          "Miru-Url": "https://kodikapi.com",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-    }
-
+    const kodikRes = await this.reqKodik(path);
     const episodesGroups = [];
 
     if (kodikRes && kodikRes.results) {
       for (const release of kodikRes.results) {
-        const translationName = release.translation ? release.translation.title : "Стандартная";
+        const translationName = release.translation ? release.translation.title : "Озвучка";
         const urlsList = [];
 
         if (release.seasons) {
@@ -130,7 +146,7 @@ export default class extends Extension {
     };
   }
 
-  // Воспроизведение видеопотока Kodik
+  // Загрузка видеопотока
   async watch(url) {
     let playerUrl = url.startsWith("//") ? `https:${url}` : url;
     
