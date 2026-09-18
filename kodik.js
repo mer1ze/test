@@ -1,7 +1,7 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.2.1
-// @author       User
+// @version      v1.2.2
+// @author       mer1ze
 // @lang         ru
 // @license      MIT
 // @icon         https://kodikplayer.com/favicon.ico
@@ -12,19 +12,7 @@
 // ==/MiruExtension==
 
 export default class extends Extension {
-  apiToken = "89144806a6428eb3e98132d733ec142a";
-
-  async req(endpoint) {
-    const symbol = endpoint.includes("?") ? "&" : "?";
-    const fullUrl = `https://kodikapi.com${endpoint}${symbol}token=${this.apiToken}`;
-
-    return await this.request("", {
-      headers: {
-        "Miru-Url": fullUrl,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    });
-  }
+  apiToken = "q8p5vnf9crt7xfyzke4iwc6r5rvsurv7";
 
   decodeB64(str) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
@@ -38,12 +26,50 @@ export default class extends Extension {
     return output;
   }
 
+  async req(endpoint) {
+    const symbol = endpoint.includes("?") ? "&" : "?";
+    const path = `${endpoint}${symbol}token=${this.apiToken}`;
+
+    // Пробуем прямой запрос к API Kodik
+    try {
+      const res = await this.request("", {
+        headers: {
+          "Miru-Url": `https://kodikapi.com${path}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+      if (res && (res.results || res.time)) return res;
+    } catch (e) {
+      // Игнорируем и переходим к фоллбэку
+    }
+
+    // Фоллбэк 1: Альтернативное зеркало API
+    try {
+      const res = await this.request("", {
+        headers: {
+          "Miru-Url": `https://kodik-api.com${path}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+      if (res && (res.results || res.time)) return res;
+    } catch (e) {
+      // Игнорируем и переходим к фоллбэку
+    }
+
+    // Фоллбэк 2: Запрос через прокси-прокладку CORS
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(`https://kodikapi.com${path}`)}`;
+    return await this.request("", {
+      headers: {
+        "Miru-Url": proxyUrl,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+  }
+
   async latest(page) {
     const res = await this.req(`/list?types=anime-serial,anime&limit=24&page=${page}&with_episodes=true`);
     
-    if (!res || !res.results) {
-      return [];
-    }
+    if (!res || !res.results) return [];
 
     return res.results.map((item) => ({
       title: item.title || item.title_orig,
@@ -75,7 +101,8 @@ export default class extends Extension {
       itemData = JSON.parse(rawUrl);
     } catch (e) {
       const res = await this.req(rawUrl);
-      const item = res.results[0];
+      const item = res.results ? res.results[0] : null;
+      if (!item) throw new Error("Тайтл не найден");
       itemData = { link: item.link, title: item.title, id: item.id };
     }
 
@@ -139,7 +166,7 @@ export default class extends Extension {
     });
 
     if (!html || typeof html !== "string") {
-      throw new Error("Не удалось загрузить плеер");
+      throw new Error("Не удалось загрузить плеер Kodik");
     }
 
     const domainMatch = html.match(/var domain = "(.+?)";/);
