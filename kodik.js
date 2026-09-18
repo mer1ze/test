@@ -1,7 +1,7 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.2.2
-// @author       mer1ze
+// @version      v1.2.3
+// @author       User
 // @lang         ru
 // @license      MIT
 // @icon         https://kodikplayer.com/favicon.ico
@@ -30,40 +30,20 @@ export default class extends Extension {
     const symbol = endpoint.includes("?") ? "&" : "?";
     const path = `${endpoint}${symbol}token=${this.apiToken}`;
 
-    // Пробуем прямой запрос к API Kodik
+    // Передаем абсолютный URL прямым первым аргументом (Miru корректно выполнит запрос)
     try {
-      const res = await this.request("", {
+      return await this.request(`https://kodikapi.com${path}`, {
         headers: {
-          "Miru-Url": `https://kodikapi.com${path}`,
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
       });
-      if (res && (res.results || res.time)) return res;
     } catch (e) {
-      // Игнорируем и переходим к фоллбэку
-    }
-
-    // Фоллбэк 1: Альтернативное зеркало API
-    try {
-      const res = await this.request("", {
+      return await this.request(`https://kodik-api.com${path}`, {
         headers: {
-          "Miru-Url": `https://kodik-api.com${path}`,
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
       });
-      if (res && (res.results || res.time)) return res;
-    } catch (e) {
-      // Игнорируем и переходим к фоллбэку
     }
-
-    // Фоллбэк 2: Запрос через прокси-прокладку CORS
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(`https://kodikapi.com${path}`)}`;
-    return await this.request("", {
-      headers: {
-        "Miru-Url": proxyUrl,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    });
   }
 
   async latest(page) {
@@ -157,9 +137,8 @@ export default class extends Extension {
       .replace("kodik.biz", "kodikplayer.com")
       .replace("aniqit.com", "kodikplayer.com");
 
-    const html = await this.request("", {
+    const html = await this.request(playerUrl, {
       headers: {
-        "Miru-Url": playerUrl,
         "Referer": "https://kodikplayer.com/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
@@ -184,10 +163,9 @@ export default class extends Extension {
 
     const postBody = `domain=${encodeURIComponent(domain)}&d_sign=${encodeURIComponent(d_sign)}&pd=${encodeURIComponent(pd)}&pd_sign=${encodeURIComponent(pd_sign)}&ref=${encodeURIComponent(ref)}&bad_user=false&type=video`;
 
-    const gtaRes = await this.request("", {
+    const gtaRes = await this.request(`https://${domain}/gta`, {
       method: "POST",
       headers: {
-        "Miru-Url": `https://${domain}/gta`,
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": playerUrl,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
