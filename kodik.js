@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.1.1
+// @version      v1.2.0
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -13,17 +13,33 @@
 
 export default class extends Extension {
   apiToken = "q8p5vnf9crt7xfyzke4iwc6r5rvsurv7";
-  domain = "https://kodikapi.com";
+  primaryDomain = "https://kodikapi.com";
+  backupDomain = "https://kodik-api.com";
 
+  // Универсальный запрос с автоматическим фоллбэком при ошибке DNS
   async req(endpoint) {
     const symbol = endpoint.includes("?") ? "&" : "?";
-    return this.request(`${endpoint}${symbol}token=${this.apiToken}`, {
-      headers: {
-        "Miru-Url": this.domain,
-      },
-    });
+    const path = `${endpoint}${symbol}token=${this.apiToken}`;
+
+    try {
+      return await this.request(path, {
+        headers: {
+          "Miru-Url": this.primaryDomain,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+    } catch (e) {
+      // Если основной домен kodikapi.com не резолвится, запрашиваем через запасное зеркало
+      return await this.request(path, {
+        headers: {
+          "Miru-Url": this.backupDomain,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+    }
   }
 
+  // Декодер Base64 для QuickJS движка Miru
   decodeB64(str) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
     let output = '';
@@ -39,6 +55,10 @@ export default class extends Extension {
   async latest(page) {
     const res = await this.req(`/list?types=anime-serial,anime&limit=24&page=${page}&with_episodes=true`);
     
+    if (!res || !res.results) {
+      throw new Error("Не удалось получить список от API Kodik");
+    }
+
     return res.results.map((item) => ({
       title: item.title || item.title_orig,
       url: `/search?id=${item.id}&shikimori_id=${item.shikimori_id || ''}`,
@@ -49,15 +69,17 @@ export default class extends Extension {
   async search(kw, page) {
     const res = await this.req(`/search?title=${encodeURIComponent(kw)}&types=anime-serial,anime&limit=30&with_episodes=true`);
     
+    if (!res || !res.results) return [];
+
     return res.results.map((item) => ({
-      title: `${item.title} (${item.translation.title})`,
+      title: `${item.title} (${item.translation ? item.translation.title : 'Озвучка'})`,
       url: JSON.stringify({
         link: item.link,
         title: item.title,
         id: item.id
       }),
       cover: item.material_data?.poster_url || "https://shikimori.one/assets/globals/missing.png",
-      desc: item.material_data?.description || `Озвучка: ${item.translation.title}`,
+      desc: item.material_data?.description || `Озвучка: ${item.translation ? item.translation.title : 'Неизвестно'}`,
     }));
   }
 
@@ -74,39 +96,41 @@ export default class extends Extension {
     const searchRes = await this.req(`/search?id=${itemData.id}&with_episodes=true`);
     const episodesGroups = [];
 
-    for (const release of searchRes.results) {
-      const translationName = release.translation.title || "Стандартная";
-      const urlsList = [];
+    if (searchRes && searchRes.results) {
+      for (const release of searchRes.results) {
+        const translationName = release.translation ? release.translation.title : "Стандартная";
+        const urlsList = [];
 
-      if (release.seasons) {
-        for (const seasonNum in release.seasons) {
-          const episodes = release.seasons[seasonNum].episodes;
-          for (const epNum in episodes) {
-            urlsList.push({
-              name: `S${seasonNum} E${epNum}`,
-              url: episodes[epNum],
-            });
+        if (release.seasons) {
+          for (const seasonNum in release.seasons) {
+            const episodes = release.seasons[seasonNum].episodes;
+            for (const epNum in episodes) {
+              urlsList.push({
+                name: `S${seasonNum} E${epNum}`,
+                url: episodes[epNum],
+              });
+            }
           }
+        } else if (release.link) {
+          urlsList.push({
+            name: "Фильм / ОВА",
+            url: release.link,
+          });
         }
-      } else if (release.link) {
-        urlsList.push({
-          name: "Фильм / ОВА",
-          url: release.link,
-        });
-      }
 
-      if (urlsList.length > 0) {
-        episodesGroups.push({
-          title: translationName,
-          urls: urlsList,
-        });
+        if (urlsList.length > 0) {
+          episodesGroups.push({
+            title: translationName,
+            urls: urlsList,
+          });
+        }
       }
     }
 
     return {
       title: itemData.title,
-      cover: searchRes.results[0]?.material_data?.poster_url || "",
-      desc: searchRes.results[0]?.material_data?.description || "",
+      cover: searchRes?.results?.[0]?.material_data?.poster_url || "",
+      desc: searchRes?.results?.[0]?.material_data?.description || "",
       episodes: episodesGroups,
     };
   }
@@ -114,7 +138,7 @@ export default class extends Extension {
   async watch(url) {
     let playerUrl = url.startsWith("//") ? `https:${url}` : url;
     
-    // Заменяем устаревшие домены
+    // Перенаправляем все вызовы на рабочее зеркало плеера kodikplayer.com
     playerUrl = playerUrl
       .replace("kodik.info", "kodikplayer.com")
       .replace("kodik.cc", "kodikplayer.com")
@@ -130,14 +154,14 @@ export default class extends Extension {
     });
 
     if (!html || typeof html !== "string") {
-      throw new Error("ERR_HTML_EMPTY: Не удалось получить HTML плеера");
+      throw new Error("Не удалось загрузить плеер");
     }
 
     const domainMatch = html.match(/var domain = "(.+?)";/);
     const dSignMatch = html.match(/var d_sign = "(.+?)";/);
 
     if (!domainMatch || !dSignMatch) {
-      throw new Error("ERR_TOKENS_NOT_FOUND: Не найдены var domain или var d_sign в HTML");
+      throw new Error("Не удалось извлечь токены плеера Kodik");
     }
 
     const domain = domainMatch[1];
@@ -160,14 +184,10 @@ export default class extends Extension {
     });
 
     if (!gtaRes || !gtaRes.links) {
-      throw new Error("ERR_GTA_FAILED: Запрос /gta не вернул массив links");
+      throw new Error("Kodik не отдал прямые ссылки на потоки");
     }
 
     const qualities = Object.keys(gtaRes.links);
-    if (qualities.length === 0) {
-      throw new Error("ERR_NO_QUALITIES: Массив links пуст");
-    }
-
     const maxQuality = qualities[qualities.length - 1];
     const encodedSrc = gtaRes.links[maxQuality][0].src;
 
