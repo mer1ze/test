@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.7.0
+// @version      v3.7.1
 // @author       mer1ze
 // @lang         ru
 // @license      MIT
@@ -162,12 +162,8 @@ export default class extends Extension {
 
     // Жестко страхуемся: если domain пустой, берем его из cleanUrl или ставим дефолт
     let domain = extractGlobal('domain');
-    if (!domain) {
-      try {
-        domain = new URL(cleanUrl).hostname;
-      } catch (e) {
+    if (!domain || domain.includes('shikimori') || domain.includes('kinopoisk')) {
         domain = "kodikplayer.com";
-      }
     }
 
     const dSign = extractGlobal('d_sign');
