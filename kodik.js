@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v1.1.0
+// @version      v1.1.1
 // @author       User
 // @lang         ru
 // @license      MIT
@@ -24,7 +24,6 @@ export default class extends Extension {
     });
   }
 
-  // Декодер Base64 для QuickJS движка Miru
   decodeB64(str) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
     let output = '';
@@ -37,7 +36,6 @@ export default class extends Extension {
     return output;
   }
 
-  // Список последних обновленных тайтлов
   async latest(page) {
     const res = await this.req(`/list?types=anime-serial,anime&limit=24&page=${page}&with_episodes=true`);
     
@@ -48,7 +46,6 @@ export default class extends Extension {
     }));
   }
 
-  // Поиск по названию
   async search(kw, page) {
     const res = await this.req(`/search?title=${encodeURIComponent(kw)}&types=anime-serial,anime&limit=30&with_episodes=true`);
     
@@ -64,7 +61,6 @@ export default class extends Extension {
     }));
   }
 
-  // Страница аниме с выбором озвучек и серий
   async detail(rawUrl) {
     let itemData;
     try {
@@ -115,10 +111,11 @@ export default class extends Extension {
     };
   }
 
-  // Извлечение HLS-потока из плеера Kodik
   async watch(url) {
-    // Принудительно заменяем устаревшие домены на рабочий kodikplayer.com
-    let playerUrl = (url.startsWith("//") ? `https:${url}` : url)
+    let playerUrl = url.startsWith("//") ? `https:${url}` : url;
+    
+    // Заменяем устаревшие домены
+    playerUrl = playerUrl
       .replace("kodik.info", "kodikplayer.com")
       .replace("kodik.cc", "kodikplayer.com")
       .replace("kodik.biz", "kodikplayer.com")
@@ -132,19 +129,23 @@ export default class extends Extension {
       },
     });
 
-    if (!html) throw new Error("Не удалось загрузить HTML плеера Kodik");
+    if (!html || typeof html !== "string") {
+      throw new Error("ERR_HTML_EMPTY: Не удалось получить HTML плеера");
+    }
 
-    const domain = (html.match(/var domain = "(.+?)";/) || [])[1];
-    const d_sign = (html.match(/var d_sign = "(.+?)";/) || [])[1];
+    const domainMatch = html.match(/var domain = "(.+?)";/);
+    const dSignMatch = html.match(/var d_sign = "(.+?)";/);
+
+    if (!domainMatch || !dSignMatch) {
+      throw new Error("ERR_TOKENS_NOT_FOUND: Не найдены var domain или var d_sign в HTML");
+    }
+
+    const domain = domainMatch[1];
+    const d_sign = dSignMatch[1];
     const pd = (html.match(/var pd = "(.+?)";/) || [])[1] || "";
     const pd_sign = (html.match(/var pd_sign = "(.+?)";/) || [])[1] || "";
     const ref = (html.match(/var ref = "(.+?)";/) || [])[1] || "";
 
-    if (!domain || !d_sign) {
-      throw new Error("Не удалось извлечь токены Kodik из HTML");
-    }
-
-    // Ручная сборка POST-тела без URLSearchParams
     const postBody = `domain=${encodeURIComponent(domain)}&d_sign=${encodeURIComponent(d_sign)}&pd=${encodeURIComponent(pd)}&pd_sign=${encodeURIComponent(pd_sign)}&ref=${encodeURIComponent(ref)}&bad_user=false&type=video`;
 
     const gtaRes = await this.request(`/gta`, {
@@ -153,23 +154,31 @@ export default class extends Extension {
         "Miru-Url": `https://${domain}/gta`,
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": playerUrl,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
       data: postBody,
     });
 
     if (!gtaRes || !gtaRes.links) {
-      throw new Error("Kodik не вернул ссылки на видеопоток");
+      throw new Error("ERR_GTA_FAILED: Запрос /gta не вернул массив links");
     }
 
     const qualities = Object.keys(gtaRes.links);
+    if (qualities.length === 0) {
+      throw new Error("ERR_NO_QUALITIES: Массив links пуст");
+    }
+
     const maxQuality = qualities[qualities.length - 1];
     const encodedSrc = gtaRes.links[maxQuality][0].src;
 
-    const streamUrl = this.decodeB64(encodedSrc);
+    let streamUrl = this.decodeB64(encodedSrc);
+    if (streamUrl.startsWith("//")) {
+      streamUrl = `https:${streamUrl}`;
+    }
 
     return {
       type: "hls",
-      url: streamUrl.startsWith("//") ? `https:${streamUrl}` : streamUrl,
+      url: streamUrl,
     };
   }
 }
