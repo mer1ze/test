@@ -1,6 +1,6 @@
 // ==MiruExtension==
 // @name         Kodik
-// @version      v3.7.3
+// @version      v3.7.4
 // @author       mer1ze
 // @lang         ru
 // @license      MIT
@@ -19,7 +19,7 @@ export default class extends Extension {
     return await this.request(url, {
       headers: {
         "Miru-Url": url,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         ...options.headers,
       },
       method: options.method || "GET",
@@ -117,11 +117,8 @@ export default class extends Extension {
     };
   }
 
-  decodeUrl(url) {
-    if (!url) return "";
-    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//")) {
-      return url;
-    }
+  // Функция декодирования ссылок Kodik (ROT13 + Base64)
+  decodeKodikLink(url) {
     try {
       const decodedBase64 = atob(url);
       return decodedBase64.replace(/[a-zA-Z]/g, (c) =>
@@ -141,37 +138,64 @@ export default class extends Extension {
 
   async watch(urlStr) {
     const parts = urlStr.split("|");
-    const rawUrl = parts[0];
-    const shikimoriId = parts[1];
+    let rawUrl = parts[0];
 
-    let streamUrl = "";
+    if (!rawUrl) {
+      throw new Error("Не указана ссылка на видео");
+    }
 
-    // 1. Пробуем через официальное API по ID
-    if (shikimoriId) {
-      try {
-        const apiRes = await this.fetchApi(`https://kodik-api.com/search?token=${this.kodikToken}&shikimori_id=${shikimoriId}&with_episodes=true`);
-        if (apiRes && apiRes.results && apiRes.results.length > 0) {
-          const release = apiRes.results[0];
-          if (release.link) {
-            streamUrl = release.link;
-          }
+    if (rawUrl.startsWith("//")) {
+      rawUrl = `https:${rawUrl}`;
+    }
+
+    try {
+      // Загружаем HTML-страницу плеера Kodik
+      const html = await this.fetchApi(rawUrl, {
+        headers: {
+          "Referer": "https://shikimori.io/",
         }
-      } catch (e) {}
+      });
+
+      // Ищем зашифрованные ссылки на видео внутри скриптов страницы (например, domain, d, pd и т.д.)
+      // Стандартный паттерн извлечения ссылок на видеопотоки из плеера Kodik
+      const matchLink = html.match(/url:\s*'([^']+)'/) || html.match(/https?:\/\/[^"']+\.m3u8[^"']*/);
+      
+      let videoUrl = "";
+      if (matchLink) {
+        let extracted = matchLink[1] || matchLink[0];
+        // Если ссылка зашифрована через стандартные методы коддика, расшифровываем
+        if (!extracted.startsWith("http")) {
+          videoUrl = this.decodeKodikLink(extracted);
+        } else {
+          videoUrl = extracted;
+        }
+      }
+
+      // Если регуляркой не вышло напрямую, попробуем альтернативный поиск .m3u8 в тексте страницы
+      if (!videoUrl) {
+        const allM3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>*/]*/g);
+        if (allM3u8 && allM3u8.length > 0) {
+          videoUrl = allM3u8[0];
+        }
+      }
+
+      if (videoUrl) {
+        if (videoUrl.startsWith("//")) {
+          videoUrl = `https:${videoUrl}`;
+        }
+        return {
+          type: "hls",
+          url: videoUrl,
+        };
+      }
+    } catch (e) {
+      // Если при парсинге страницы возникли проблемы, пробуем вернуть хотя бы обработанный rawUrl напрямую
     }
 
-    // 2. Если API не помогло, используем прямую ссылку из плеера
-    if (!streamUrl && rawUrl) {
-      streamUrl = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
-    }
-
-    if (!streamUrl) {
-      throw new Error("Не удалось получить ссылку на потоки Kodik");
-    }
-
-    // Возвращаем как есть, если это уже прямой HLS, либо отдаем плееру
+    // Запасной вариант, если страница защищена: отдаем ссылку с заголовками
     return {
       type: "hls",
-      url: streamUrl,
+      url: rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl,
     };
   }
 }
