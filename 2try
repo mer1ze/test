@@ -1,3 +1,16 @@
+// ==MiruExtension==
+// @name         Kodik
+// @version      v3.7.4
+// @author       mer1ze
+// @lang         ru
+// @license      MIT
+// @icon         https://kodikplayer.com/favicon.ico
+// @package      kodik.ru
+// @type         bangumi
+// @webSite      https://shikimori.io
+// @nsfw         false
+// ==/MiruExtension==
+
 class KodikAnime extends Extension {
     constructor() {
         super();
