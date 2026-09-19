@@ -1,1 +1,100 @@
+class KodikAnime extends Extension {
+    constructor() {
+        super();
+        this.name = "Kodik";
+        this.id = "kodik.anime.ru";
+        this.type = "anime";
+        this.version = "1.0.0";
+        this.lang = "ru";
+        this.baseUrl = "https://kodik.info";
+    }
 
+    async search(query, page) {
+        const url = `${this.baseUrl}/search?types=anime&title=${encodeURIComponent(query)}&limit=20&page=${page}`;
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            }
+        });
+        const text = await res.text();
+        const results = [];
+        const regex = /<a[^>]+href="([^"]+)"[^>]*class="[^"]*anime-card[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<div[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)<\/div>/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            results.push({
+                title: match[3].trim(),
+                url: match[1],
+                cover: match[2]
+            });
+        }
+        return results;
+    }
+
+    async detail(url) {
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            }
+        });
+        const text = await res.text();
+        const titleMatch = text.match(/<h1[^>]*>([^<]+)<\/h1>/);
+        const descMatch = text.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+        const coverMatch = text.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/);
+        
+        const episodes = [];
+        const epRegex = /<a[^>]+href="([^"]+)"[^>]*class="[^"]*episode[^"]*"[^>]*>([^<]+)<\/a>/g;
+        let epMatch;
+        while ((epMatch = epRegex.exec(text)) !== null) {
+            episodes.push({
+                name: epMatch[2].trim(),
+                url: epMatch[1]
+            });
+        }
+
+        return {
+            title: titleMatch ? titleMatch[1].trim() : "Unknown",
+            cover: coverMatch ? coverMatch[1] : "",
+            desc: descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : "",
+            episodes: episodes
+        };
+    }
+
+    async watch(url) {
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            }
+        });
+        const text = await res.text();
+        
+        const iframeMatch = text.match(/<iframe[^>]+src="([^"]+kodik[^"]+)"[^>]*>/);
+        if (iframeMatch) {
+            const playerUrl = iframeMatch[1];
+            const playerRes = await fetch(playerUrl, {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+                    "Referer": url
+                }
+            });
+            const playerText = await playerRes.text();
+            
+            const links = [];
+            const linkRegex = /"([^"]*\.mp4[^"]*)"/g;
+            let linkMatch;
+            while ((linkMatch = linkRegex.exec(playerText)) !== null) {
+                const videoUrl = linkMatch[1].replace(/\\\//g, '/');
+                if (videoUrl.includes('http')) {
+                    links.push({
+                        url: videoUrl,
+                        quality: "Default"
+                    });
+                }
+            }
+            return links.length > 0 ? links : [{ url: playerUrl, quality: "Default" }];
+        }
+        
+        return [{ url: url, quality: "Default" }];
+    }
+}
+
+module.exports = KodikAnime;
